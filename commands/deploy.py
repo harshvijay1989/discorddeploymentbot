@@ -50,7 +50,6 @@ class DeployCog(commands.Cog):
         )
 
         manifest = "package.xml"
-        force_app = SF_PROJECT_DIR / "force-app"
 
         try:
             # Write package.xml into the project root
@@ -75,12 +74,13 @@ class DeployCog(commands.Cog):
                 return
 
         finally:
-            # Clean up only retrieved source files, keep project structure intact
-            if force_app.exists():
-                shutil.rmtree(force_app)
-                force_app.mkdir()
+            # Clear only retrieved files, keep force-app/main/ structure intact
+            force_app_default = SF_PROJECT_DIR / "force-app" / "main" / "default"
+            if force_app_default.exists():
+                shutil.rmtree(force_app_default)
+                force_app_default.mkdir()
             (SF_PROJECT_DIR / manifest).unlink(missing_ok=True)
-            logger.info("Cleaned up retrieved files")
+            logger.info("Cleaned up force-app/main/default and package.xml")
 
         await msg.edit(embed=embeds.result_embed(result, test_list))
         logger.info("Deployment %s finished: %s", result.job_id, result.status)
