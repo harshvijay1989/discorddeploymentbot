@@ -121,7 +121,8 @@ async def deploy(
         args.append("--dry-run")
 
     if test_classes:
-        args += ["--test-level", "RunSpecifiedTests", "--tests", ",".join(test_classes)]
+        # --tests expects space-separated class names as individual arguments
+        args += ["--test-level", "RunSpecifiedTests", "--tests", *test_classes]
     else:
         args += ["--test-level", "RunLocalTests"]
 
