@@ -40,7 +40,7 @@ class DeployResult:
 async def _run(*args: str, cwd: str | None = None) -> dict:
     """Run a sf CLI command with --json; raise on non-zero exit."""
     cmd = [_SF_BIN, *args, "--json"]
-    logger.debug("Running: %s", " ".join(cmd))
+    logger.info("CMD: %s", " ".join(cmd))
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -51,8 +51,15 @@ async def _run(*args: str, cwd: str | None = None) -> dict:
     stdout, stderr = await proc.communicate()
 
     raw = stdout.decode().strip()
+    err = stderr.decode().strip()
+
+    logger.info("EXIT CODE: %s", proc.returncode)
+    if err:
+        logger.info("STDERR: %s", err)
+    logger.info("STDOUT: %s", raw[:2000] if raw else "(empty)")
+
     if not raw:
-        raise RuntimeError(f"SF CLI produced no output.\nstderr: {stderr.decode()[:500]}")
+        raise RuntimeError(f"SF CLI produced no output.\nstderr: {err[:500]}")
 
     try:
         data = json.loads(raw)
@@ -61,7 +68,7 @@ async def _run(*args: str, cwd: str | None = None) -> dict:
 
     # SF CLI exit code 1 can mean warnings-only, check the status field
     if data.get("status", 0) not in (0, 1):
-        msg = data.get("message") or data.get("name") or stderr.decode()
+        msg = data.get("message") or data.get("name") or err
         raise RuntimeError(f"SF CLI error: {msg}")
 
     return data
