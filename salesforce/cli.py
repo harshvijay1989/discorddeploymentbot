@@ -92,37 +92,45 @@ async def setup_auth(alias: str, auth_url: str) -> None:
         os.unlink(tmp_path)
 
 
+async def generate_project(project_dir: str, name: str = "sfbot") -> None:
+    """Generate a fresh SFDX project in the given parent directory."""
+    await _run(
+        "project", "generate",
+        "--name", name,
+        "--output-dir", project_dir,
+    )
+    logger.info("SFDX project generated at %s/%s", project_dir, name)
+
+
 async def retrieve(
-    package_xml_path: str,
-    output_dir: str,
+    manifest: str,
     org_alias: str,
     cwd: str,
     wait_minutes: int = 30,
 ) -> None:
-    """Retrieve metadata from org into output_dir."""
+    """Retrieve metadata using manifest (package.xml), run from project cwd."""
     await _run(
         "project", "retrieve", "start",
-        "--manifest", package_xml_path,
-        "--output-dir", output_dir,
+        "--manifest", manifest,
         "--target-org", org_alias,
         "--wait", str(wait_minutes),
         cwd=cwd,
     )
-    logger.info("Retrieve from %s completed → %s", org_alias, output_dir)
+    logger.info("Retrieve from %s completed", org_alias)
 
 
 async def deploy(
-    source_dir: str,
+    manifest: str,
     org_alias: str,
     test_classes: list[str],
     cwd: str,
     check_only: bool = False,
     wait_minutes: int = 60,
 ) -> DeployResult:
-    """Deploy source_dir to org; return structured DeployResult."""
+    """Deploy using manifest (package.xml), run from project cwd."""
     args = [
         "project", "deploy", "start",
-        "--source-dir", source_dir,
+        "--manifest", manifest,
         "--target-org", org_alias,
         "--wait", str(wait_minutes),
     ]

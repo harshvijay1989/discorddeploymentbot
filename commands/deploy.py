@@ -3,8 +3,8 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import tempfile
 import traceback
-import uuid
 from pathlib import Path
 
 import discord
@@ -18,9 +18,7 @@ logger = logging.getLogger(__name__)
 
 UAT_ALIAS = os.getenv("UAT_SF_ORG_ALIAS", "uat")
 PROD_ALIAS = os.getenv("PROD_SF_ORG_ALIAS", "prod")
-
-# Bot root — sfdx-project.json lives here
-BOT_DIR = Path(__file__).parent.parent
+PROJECT_NAME = "sfbot"
 
 
 class DeployCog(commands.Cog):
@@ -50,19 +48,22 @@ class DeployCog(commands.Cog):
             wait=True,
         )
 
-        # Each deployment gets its own subfolder under deployments/
-        run_id = uuid.uuid4().hex[:8]
-        run_dir = BOT_DIR / "deployments" / run_id
-        run_dir.mkdir(parents=True, exist_ok=True)
-        pkg_xml_path = run_dir / "package.xml"
-        pkg_xml_path.write_bytes(xml_bytes)
-        retrieved_dir = str(run_dir / "retrieved")
+        # Create a temp dir, generate a fresh SFDX project inside it
+        tmp = tempfile.mkdtemp(prefix="sfbot_")
+        project_dir = str(Path(tmp) / PROJECT_NAME)
 
         try:
+            # Generate SFDX project
+            await sf.generate_project(tmp, PROJECT_NAME)
+
+            # Drop package.xml into the project root
+            manifest = "package.xml"
+            (Path(project_dir) / manifest).write_bytes(xml_bytes)
+
             # ── Step 1: Retrieve from UAT ──────────────────────────────────────
             await msg.edit(embed=embeds.retrieving_embed(package_xml.filename, test_list, check_only))
             try:
-                await sf.retrieve(str(pkg_xml_path), retrieved_dir, UAT_ALIAS, cwd=str(BOT_DIR))
+                await sf.retrieve(manifest, UAT_ALIAS, cwd=project_dir)
             except Exception as exc:
                 logger.error("Retrieve failed:\n%s", traceback.format_exc())
                 await msg.edit(embed=embeds.error_embed("Retrieve (UAT)", str(exc)))
@@ -71,16 +72,15 @@ class DeployCog(commands.Cog):
             # ── Step 2: Deploy to Production ───────────────────────────────────
             await msg.edit(embed=embeds.deploying_embed(package_xml.filename, test_list, check_only))
             try:
-                result = await sf.deploy(retrieved_dir, PROD_ALIAS, test_list, cwd=str(BOT_DIR), check_only=check_only)
+                result = await sf.deploy(manifest, PROD_ALIAS, test_list, cwd=project_dir, check_only=check_only)
             except Exception as exc:
                 logger.error("Deploy failed:\n%s", traceback.format_exc())
                 await msg.edit(embed=embeds.error_embed("Deploy (Production)", str(exc)))
                 return
 
         finally:
-            # Clean up downloaded files after every run (success or failure)
-            shutil.rmtree(run_dir, ignore_errors=True)
-            logger.info("Cleaned up deployment folder: %s", run_dir)
+            shutil.rmtree(tmp, ignore_errors=True)
+            logger.info("Cleaned up: %s", tmp)
 
         await msg.edit(embed=embeds.result_embed(result, test_list))
         logger.info("Deployment %s finished: %s", result.job_id, result.status)
