@@ -96,6 +96,7 @@ async def retrieve(
     package_xml_path: str,
     output_dir: str,
     org_alias: str,
+    cwd: str,
     wait_minutes: int = 30,
 ) -> None:
     """Retrieve metadata from org into output_dir."""
@@ -105,6 +106,7 @@ async def retrieve(
         "--output-dir", output_dir,
         "--target-org", org_alias,
         "--wait", str(wait_minutes),
+        cwd=cwd,
     )
     logger.info("Retrieve from %s completed → %s", org_alias, output_dir)
 
@@ -113,6 +115,7 @@ async def deploy(
     source_dir: str,
     org_alias: str,
     test_classes: list[str],
+    cwd: str,
     check_only: bool = False,
     wait_minutes: int = 60,
 ) -> DeployResult:
@@ -128,12 +131,11 @@ async def deploy(
         args.append("--dry-run")
 
     if test_classes:
-        # --tests expects space-separated class names as individual arguments
         args += ["--test-level", "RunSpecifiedTests", "--tests", *test_classes]
     else:
         args += ["--test-level", "RunLocalTests"]
 
-    data = await _run(*args)
+    data = await _run(*args, cwd=cwd)
     logger.info("DEPLOY RAW RESULT: %s", json.dumps(data, indent=2)[:3000])
     return _parse_result(data.get("result", {}))
 
