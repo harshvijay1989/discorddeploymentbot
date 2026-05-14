@@ -7,3 +7,5 @@ venv/
 dist/
 build/
 deployments/
+sfbot/force-app/main/
+sfbot/package.xml

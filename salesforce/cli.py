@@ -92,16 +92,6 @@ async def setup_auth(alias: str, auth_url: str) -> None:
         os.unlink(tmp_path)
 
 
-async def generate_project(project_dir: str, name: str = "sfbot") -> None:
-    """Generate a fresh SFDX project in the given parent directory."""
-    await _run(
-        "project", "generate",
-        "--name", name,
-        "--output-dir", project_dir,
-    )
-    logger.info("SFDX project generated at %s/%s", project_dir, name)
-
-
 async def retrieve(
     manifest: str,
     org_alias: str,

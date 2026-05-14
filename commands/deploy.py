@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 import os
 import shutil
-import tempfile
 import traceback
 from pathlib import Path
 
@@ -18,7 +17,9 @@ logger = logging.getLogger(__name__)
 
 UAT_ALIAS = os.getenv("UAT_SF_ORG_ALIAS", "uat")
 PROD_ALIAS = os.getenv("PROD_SF_ORG_ALIAS", "prod")
-PROJECT_NAME = "sfbot"
+
+# Permanent SFDX project directory
+SF_PROJECT_DIR = Path(__file__).parent.parent / "sfbot"
 
 
 class DeployCog(commands.Cog):
@@ -48,22 +49,17 @@ class DeployCog(commands.Cog):
             wait=True,
         )
 
-        # Create a temp dir, generate a fresh SFDX project inside it
-        tmp = tempfile.mkdtemp(prefix="sfbot_")
-        project_dir = str(Path(tmp) / PROJECT_NAME)
+        manifest = "package.xml"
+        force_app = SF_PROJECT_DIR / "force-app"
 
         try:
-            # Generate SFDX project
-            await sf.generate_project(tmp, PROJECT_NAME)
-
-            # Drop package.xml into the project root
-            manifest = "package.xml"
-            (Path(project_dir) / manifest).write_bytes(xml_bytes)
+            # Write package.xml into the project root
+            (SF_PROJECT_DIR / manifest).write_bytes(xml_bytes)
 
             # ── Step 1: Retrieve from UAT ──────────────────────────────────────
             await msg.edit(embed=embeds.retrieving_embed(package_xml.filename, test_list, check_only))
             try:
-                await sf.retrieve(manifest, UAT_ALIAS, cwd=project_dir)
+                await sf.retrieve(manifest, UAT_ALIAS, cwd=str(SF_PROJECT_DIR))
             except Exception as exc:
                 logger.error("Retrieve failed:\n%s", traceback.format_exc())
                 await msg.edit(embed=embeds.error_embed("Retrieve (UAT)", str(exc)))
@@ -72,15 +68,19 @@ class DeployCog(commands.Cog):
             # ── Step 2: Deploy to Production ───────────────────────────────────
             await msg.edit(embed=embeds.deploying_embed(package_xml.filename, test_list, check_only))
             try:
-                result = await sf.deploy(manifest, PROD_ALIAS, test_list, cwd=project_dir, check_only=check_only)
+                result = await sf.deploy(manifest, PROD_ALIAS, test_list, cwd=str(SF_PROJECT_DIR), check_only=check_only)
             except Exception as exc:
                 logger.error("Deploy failed:\n%s", traceback.format_exc())
                 await msg.edit(embed=embeds.error_embed("Deploy (Production)", str(exc)))
                 return
 
         finally:
-            shutil.rmtree(tmp, ignore_errors=True)
-            logger.info("Cleaned up: %s", tmp)
+            # Clean up only retrieved source files, keep project structure intact
+            if force_app.exists():
+                shutil.rmtree(force_app)
+                force_app.mkdir()
+            (SF_PROJECT_DIR / manifest).unlink(missing_ok=True)
+            logger.info("Cleaned up retrieved files")
 
         await msg.edit(embed=embeds.result_embed(result, test_list))
         logger.info("Deployment %s finished: %s", result.job_id, result.status)
