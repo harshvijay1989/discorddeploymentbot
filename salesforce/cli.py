@@ -134,6 +134,7 @@ async def deploy(
         args += ["--test-level", "RunLocalTests"]
 
     data = await _run(*args)
+    logger.info("DEPLOY RAW RESULT: %s", json.dumps(data, indent=2)[:3000])
     return _parse_result(data.get("result", {}))
 
 
