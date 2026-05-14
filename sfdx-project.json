@@ -1,0 +1,6 @@
+{
+  "packageDirectories": [
+    {"path": "deployments", "default": true}
+  ],
+  "sourceApiVersion": "59.0"
+}
