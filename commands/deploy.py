@@ -87,7 +87,7 @@ class DeployCog(commands.Cog):
 
         # ── Step 3: Wait for result and report ────────────────────────────────
         try:
-            result = await sf.deploy_report(job_id, PROD_ALIAS, cwd=str(SF_PROJECT_DIR))
+            result = await sf.deploy_report(job_id, cwd=str(SF_PROJECT_DIR))
         except Exception as exc:
             logger.error("Deploy report failed:\n%s", traceback.format_exc())
             await msg.edit(embed=embeds.error_embed("Deploy Report", str(exc)))

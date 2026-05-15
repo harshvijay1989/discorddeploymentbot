@@ -122,7 +122,6 @@ async def deploy_start(
 
 async def deploy_report(
     job_id: str,
-    org_alias: str,
     cwd: str,
     wait_minutes: int = 60,
 ) -> DeployResult:
@@ -130,7 +129,6 @@ async def deploy_report(
     data = await _run(
         "project", "deploy", "report",
         "--job-id", job_id,
-        "--target-org", org_alias,
         "--wait", str(wait_minutes),
         cwd=cwd,
     )
