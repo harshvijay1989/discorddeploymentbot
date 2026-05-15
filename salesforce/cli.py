@@ -1,10 +1,3 @@
-"""
-Salesforce CLI wrapper (async subprocess).
-
-Auth:   sf org login sfdx-url --sfdx-url <url> --alias <alias>
-Retrieve: sf project retrieve start --manifest <pkg.xml> --output-dir <dir> --target-org <alias>
-Deploy:   sf project deploy start  --source-dir <dir>  --target-org <alias> --tests ...
-"""
 from __future__ import annotations
 
 import asyncio
@@ -13,7 +6,6 @@ import logging
 import os
 import tempfile
 from dataclasses import dataclass, field
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -34,14 +26,14 @@ class DeployResult:
     tests_failed: int = 0
     component_failures: list[dict] = field(default_factory=list)
     test_failures: list[dict] = field(default_factory=list)
+    coverage_warnings: list[dict] = field(default_factory=list)
     error_message: str = ""
 
 
 async def _run(*args: str, cwd: str | None = None) -> dict:
-    """Run a sf CLI command with --json; raise on non-zero exit."""
+    """Run SF CLI with --json; raise on non-zero exit."""
     cmd = [_SF_BIN, *args, "--json"]
     logger.info("CMD: %s", " ".join(cmd))
-
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -49,37 +41,28 @@ async def _run(*args: str, cwd: str | None = None) -> dict:
         cwd=cwd,
     )
     stdout, stderr = await proc.communicate()
-
     raw = stdout.decode().strip()
     err = stderr.decode().strip()
-
     logger.info("EXIT CODE: %s", proc.returncode)
     if err:
         logger.info("STDERR: %s", err)
     logger.info("STDOUT: %s", raw[:2000] if raw else "(empty)")
-
     if not raw:
         raise RuntimeError(f"SF CLI produced no output.\nstderr: {err[:500]}")
-
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
         raise RuntimeError(f"SF CLI output is not JSON:\n{raw[:500]}")
-
-    # SF CLI exit code 1 can mean warnings-only, check the status field
     if data.get("status", 0) not in (0, 1):
         msg = data.get("message") or data.get("name") or err
         raise RuntimeError(f"SF CLI error: {msg}")
-
     return data
 
 
 async def setup_auth(alias: str, auth_url: str) -> None:
-    """Authenticate an org using an SFDX auth URL, storing it under alias."""
     with tempfile.NamedTemporaryFile(mode="w", suffix=".url", delete=False) as f:
         f.write(auth_url.strip())
         tmp_path = f.name
-
     try:
         await _run(
             "org", "login", "sfdx-url",
@@ -98,7 +81,6 @@ async def retrieve(
     cwd: str,
     wait_minutes: int = 30,
 ) -> None:
-    """Retrieve metadata using manifest (package.xml), run from project cwd."""
     await _run(
         "project", "retrieve", "start",
         "--manifest", manifest,
@@ -109,32 +91,50 @@ async def retrieve(
     logger.info("Retrieve from %s completed", org_alias)
 
 
-async def deploy(
+async def deploy_start(
     manifest: str,
     org_alias: str,
     test_classes: list[str],
     cwd: str,
     check_only: bool = False,
-    wait_minutes: int = 60,
-) -> DeployResult:
-    """Deploy using manifest (package.xml), run from project cwd."""
+) -> str:
+    """Start deployment asynchronously; returns job ID immediately."""
     args = [
         "project", "deploy", "start",
         "--manifest", manifest,
         "--target-org", org_alias,
-        "--wait", str(wait_minutes),
+        "--async",
     ]
-
     if check_only:
         args.append("--dry-run")
-
     if test_classes:
         args += ["--test-level", "RunSpecifiedTests", "--tests", *test_classes]
     else:
         args += ["--test-level", "RunLocalTests"]
 
     data = await _run(*args, cwd=cwd)
-    logger.info("DEPLOY RAW RESULT: %s", json.dumps(data, indent=2)[:3000])
+    job_id = data.get("result", {}).get("id", "")
+    if not job_id:
+        raise RuntimeError("Deploy started but no job ID returned")
+    logger.info("Deploy started, job ID: %s", job_id)
+    return job_id
+
+
+async def deploy_report(
+    job_id: str,
+    org_alias: str,
+    cwd: str,
+    wait_minutes: int = 60,
+) -> DeployResult:
+    """Poll until deployment completes; returns final result."""
+    data = await _run(
+        "project", "deploy", "report",
+        "--job-id", job_id,
+        "--target-org", org_alias,
+        "--wait", str(wait_minutes),
+        cwd=cwd,
+    )
+    logger.info("DEPLOY REPORT: %s", json.dumps(data.get("result", {}), indent=2)[:3000])
     return _parse_result(data.get("result", {}))
 
 
@@ -142,23 +142,32 @@ def _parse_result(r: dict) -> DeployResult:
     details = r.get("details", {})
     run_test = details.get("runTestResult", {})
 
-    comp_failures: list[dict] = []
-    for f in details.get("componentFailures", []):
-        comp_failures.append({
+    comp_failures = [
+        {
             "file": f.get("fileName", ""),
             "name": f.get("fullName", ""),
             "problem": f.get("problem", ""),
             "line": str(f.get("lineNumber", "")),
-        })
+        }
+        for f in details.get("componentFailures", [])
+    ]
 
-    test_failures: list[dict] = []
-    for f in run_test.get("failures", []):
-        test_failures.append({
+    test_failures = [
+        {
             "class": f.get("name", ""),
             "method": f.get("methodName", ""),
             "message": f.get("message", ""),
-            "stack": f.get("stackTrace", ""),
-        })
+        }
+        for f in run_test.get("failures", [])
+    ]
+
+    coverage_warnings = [
+        {
+            "name": w.get("name", ""),
+            "message": w.get("message", ""),
+        }
+        for w in run_test.get("codeCoverageWarnings", [])
+    ]
 
     total_tests = int(run_test.get("numTestsRun", 0))
     failed_tests = int(run_test.get("numFailures", 0))
@@ -176,5 +185,6 @@ def _parse_result(r: dict) -> DeployResult:
         tests_failed=failed_tests,
         component_failures=comp_failures,
         test_failures=test_failures,
+        coverage_warnings=coverage_warnings,
         error_message=r.get("errorMessage", "") or r.get("errorStatusCode", ""),
     )

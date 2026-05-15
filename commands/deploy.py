@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 UAT_ALIAS = os.getenv("UAT_SF_ORG_ALIAS", "uat")
 PROD_ALIAS = os.getenv("PROD_SF_ORG_ALIAS", "prod")
 
-# Permanent SFDX project directory
 SF_PROJECT_DIR = Path(__file__).parent.parent / "sfbot"
 
 
@@ -52,7 +51,6 @@ class DeployCog(commands.Cog):
         manifest = "package.xml"
 
         try:
-            # Write package.xml into the project root
             (SF_PROJECT_DIR / manifest).write_bytes(xml_bytes)
 
             # ── Step 1: Retrieve from UAT ──────────────────────────────────────
@@ -64,17 +62,18 @@ class DeployCog(commands.Cog):
                 await msg.edit(embed=embeds.error_embed("Retrieve (UAT)", str(exc)))
                 return
 
-            # ── Step 2: Deploy to Production ───────────────────────────────────
+            # ── Step 2: Start deploy (async, get job ID) ───────────────────────
             await msg.edit(embed=embeds.deploying_embed(package_xml.filename, test_list, check_only))
             try:
-                result = await sf.deploy(manifest, PROD_ALIAS, test_list, cwd=str(SF_PROJECT_DIR), check_only=check_only)
+                job_id = await sf.deploy_start(manifest, PROD_ALIAS, test_list, cwd=str(SF_PROJECT_DIR), check_only=check_only)
             except Exception as exc:
-                logger.error("Deploy failed:\n%s", traceback.format_exc())
+                logger.error("Deploy start failed:\n%s", traceback.format_exc())
                 await msg.edit(embed=embeds.error_embed("Deploy (Production)", str(exc)))
                 return
 
+            await msg.edit(embed=embeds.deploying_embed(package_xml.filename, test_list, check_only, job_id=job_id))
+
         finally:
-            # Clear only retrieved files, keep force-app/main/ structure intact
             force_app_default = SF_PROJECT_DIR / "force-app" / "main" / "default"
             if force_app_default.exists():
                 shutil.rmtree(force_app_default)
@@ -82,8 +81,16 @@ class DeployCog(commands.Cog):
             (SF_PROJECT_DIR / manifest).unlink(missing_ok=True)
             logger.info("Cleaned up force-app/main/default and package.xml")
 
+        # ── Step 3: Wait for result and report ────────────────────────────────
+        try:
+            result = await sf.deploy_report(job_id, PROD_ALIAS, cwd=str(SF_PROJECT_DIR))
+        except Exception as exc:
+            logger.error("Deploy report failed:\n%s", traceback.format_exc())
+            await msg.edit(embed=embeds.error_embed("Deploy Report", str(exc)))
+            return
+
         await msg.edit(embed=embeds.result_embed(result, test_list))
-        logger.info("Deployment %s finished: %s", result.job_id, result.status)
+        logger.info("Deploy %s finished: %s", result.job_id, result.status)
 
 
 async def setup(bot: commands.Bot) -> None:

@@ -33,12 +33,13 @@ def retrieving_embed(filename: str, test_classes: list[str], check_only: bool) -
     return e
 
 
-def deploying_embed(filename: str, test_classes: list[str], check_only: bool) -> discord.Embed:
+def deploying_embed(filename: str, test_classes: list[str], check_only: bool, job_id: str = "") -> discord.Embed:
     action = "Validate (check only)" if check_only else "Deploy"
     e = discord.Embed(title="Salesforce Deployment Pipeline", color=_ORANGE)
     e.add_field(name="File", value=f"`{filename}`", inline=True)
     e.add_field(name="✅ Step 1 — Retrieved from UAT", value="Done", inline=False)
-    e.add_field(name=f"⏳ Step 2 — {action} to Production", value="Running, please wait…", inline=False)
+    deploy_value = f"Running, please wait…{chr(10)}`{job_id}`" if job_id else "Running, please wait…"
+    e.add_field(name=f"⏳ Step 2 — {action} to Production", value=deploy_value, inline=False)
     e.set_footer(text="This may take a few minutes…")
     return e
 
@@ -46,26 +47,25 @@ def deploying_embed(filename: str, test_classes: list[str], check_only: bool) ->
 def result_embed(result: DeployResult, test_classes: list[str]) -> discord.Embed:
     if result.success:
         color = _GREEN
-        title = "✅ Deployment Succeeded" if not result.check_only else "✅ Validation Passed"
+        title = "✅ Validation Passed" if result.check_only else "✅ Deployment Succeeded"
     else:
         color = _RED
-        title = "❌ Deployment Failed" if not result.check_only else "❌ Validation Failed"
+        title = "❌ Validation Failed" if result.check_only else "❌ Deployment Failed"
 
     e = discord.Embed(title=title, color=color)
-    e.add_field(name="Status", value=result.status, inline=True)
     e.add_field(name="Job ID", value=f"`{result.job_id}`", inline=True)
-    e.add_field(name="Mode", value="Validate Only" if result.check_only else "Deploy", inline=True)
+    e.add_field(name="Status", value=result.status, inline=True)
     e.add_field(
         name="Components",
-        value=f"Total: {result.total_components}\nDeployed: {result.deployed_components}\nFailed: {result.failed_components}",
-        inline=True,
+        value=f"Total: {result.total_components} | Deployed: {result.deployed_components} | Failed: {result.failed_components}",
+        inline=False,
     )
 
     if result.total_tests > 0 or test_classes:
         e.add_field(
             name="Tests",
-            value=f"Total: {result.total_tests}\nPassed: {result.tests_passed}\nFailed: {result.tests_failed}",
-            inline=True,
+            value=f"Total: {result.total_tests} | Passed: {result.tests_passed} | Failed: {result.tests_failed}",
+            inline=False,
         )
 
     if result.component_failures:
@@ -79,6 +79,12 @@ def result_embed(result: DeployResult, test_classes: list[str]) -> discord.Embed
         if len(result.test_failures) > 5:
             lines.append(f"…and {len(result.test_failures) - 5} more")
         e.add_field(name="Test Failures", value="\n".join(lines), inline=False)
+
+    if result.coverage_warnings:
+        lines = [f"`{w['name']}`: {w['message'][:100]}" for w in result.coverage_warnings[:5]]
+        if len(result.coverage_warnings) > 5:
+            lines.append(f"…and {len(result.coverage_warnings) - 5} more")
+        e.add_field(name="Coverage Warnings", value="\n".join(lines), inline=False)
 
     if result.error_message and not result.success:
         e.add_field(name="Error", value=result.error_message[:1000], inline=False)
