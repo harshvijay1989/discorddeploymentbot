@@ -41,7 +41,11 @@ class DeployCog(commands.Cog):
         try:
             await interaction.response.defer(thinking=True)
         except discord.errors.NotFound:
-            logger.warning("Interaction expired before defer — bot was likely restarting")
+            logger.warning("Interaction expired before defer — stale event, ignoring")
+            try:
+                await interaction.channel.send("⚠️ The bot was just restarted. Please run `/deploy` again.")
+            except Exception:
+                pass
             return
 
         test_list = [t.strip() for t in test_classes.split(",") if t.strip()]
