@@ -89,7 +89,7 @@ def result_embed(result: DeployResult, test_classes: list[str]) -> discord.Embed
     if result.error_message and not result.success:
         e.add_field(name="Error", value=result.error_message[:1000], inline=False)
 
-    e.set_footer(text="Salesforce Deployment Bot")
+    e.set_footer(text="Salesforce Deployment Bot v2")
     return e
 
 
