@@ -38,7 +38,11 @@ class DeployCog(commands.Cog):
         test_classes: str,
         check_only: bool = False,
     ) -> None:
-        await interaction.response.defer(thinking=True)
+        try:
+            await interaction.response.defer(thinking=True)
+        except discord.errors.NotFound:
+            logger.warning("Interaction expired before defer — bot was likely restarting")
+            return
 
         test_list = [t.strip() for t in test_classes.split(",") if t.strip()]
         xml_bytes = await package_xml.read()
