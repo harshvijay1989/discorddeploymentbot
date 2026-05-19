@@ -129,13 +129,25 @@ async def deploy_report(
     wait_minutes: int = 60,
 ) -> DeployResult:
     """Poll until deployment completes; returns final result."""
-    data = await _run(
-        "project", "deploy", "report",
-        "--job-id", job_id,
-        "--target-org", org_alias,
-        "--wait", str(wait_minutes),
-        cwd=cwd,
-    )
+    # SF CLI's org cache can be inconsistent right after deploy_start.
+    # Wait briefly, and retry once if the first attempt fails on org lookup.
+    await asyncio.sleep(3)
+    for attempt in range(2):
+        try:
+            data = await _run(
+                "project", "deploy", "report",
+                "--job-id", job_id,
+                "--target-org", org_alias,
+                "--wait", str(wait_minutes),
+                cwd=cwd,
+            )
+            break
+        except RuntimeError as exc:
+            if "org cannot be found" in str(exc).lower() and attempt == 0:
+                logger.warning("Report failed on org lookup, retrying in 5s")
+                await asyncio.sleep(5)
+                continue
+            raise
     logger.info("DEPLOY REPORT: %s", json.dumps(data.get("result", {}), indent=2)[:3000])
     return _parse_result(data.get("result", {}))
 
