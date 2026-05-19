@@ -29,7 +29,7 @@ class DeployCog(commands.Cog):
     @app_commands.command(name="deploy", description="Retrieve from UAT and deploy to Production")
     @app_commands.describe(
         package_xml="Attach your package.xml file",
-        test_classes="Comma-separated Apex test classes (e.g. AccountTest,ContactTest)",
+        test_classes="Apex test classes separated by space or comma (e.g. AccountTest ContactTest)",
         check_only="Validate without deploying (default: false)",
     )
     async def deploy(
@@ -49,7 +49,7 @@ class DeployCog(commands.Cog):
                 pass
             return
 
-        test_list = [t.strip() for t in test_classes.split(",") if t.strip()]
+        test_list = test_classes.replace(",", " ").split()
         xml_bytes = await package_xml.read()
 
         # ── Create DB row + save package.xml ───────────────────────────────────
