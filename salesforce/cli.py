@@ -98,10 +98,10 @@ async def deploy_start(
     cwd: str,
     check_only: bool = False,
 ) -> tuple[str, str]:
-    """Start deployment asynchronously; returns (job_id, deploy_url)."""
+    """Start deployment asynchronously from force-app source dir; returns (job_id, deploy_url)."""
     args = [
         "project", "deploy", "start",
-        "--manifest", manifest,
+        "--source-dir", "force-app/main/default",
         "--target-org", org_alias,
         "--async",
     ]
