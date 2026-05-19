@@ -10,6 +10,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+import db
 from salesforce import cli as sf
 from utils import embeds
 
@@ -51,6 +52,18 @@ class DeployCog(commands.Cog):
         test_list = [t.strip() for t in test_classes.split(",") if t.strip()]
         xml_bytes = await package_xml.read()
 
+        # ── Create DB row + save package.xml ───────────────────────────────────
+        run_id = db.create_run(
+            discord_user=str(interaction.user),
+            discord_channel=str(interaction.channel),
+            package_filename=package_xml.filename,
+            test_classes=test_list,
+            check_only=check_only,
+        )
+        pkg_path = db.save_package(run_id, xml_bytes)
+        db.update_package_path(run_id, pkg_path)
+        logger.info("Created run %s, package saved to %s", run_id, pkg_path)
+
         msg = await interaction.followup.send(
             embed=embeds.started_embed(package_xml.filename, test_list, check_only),
             wait=True,
@@ -67,18 +80,21 @@ class DeployCog(commands.Cog):
                 await sf.retrieve(manifest, UAT_ALIAS, cwd=str(SF_PROJECT_DIR))
             except Exception as exc:
                 logger.error("Retrieve failed:\n%s", traceback.format_exc())
+                db.mark_failed(run_id, f"Retrieve: {exc}")
                 await msg.edit(embed=embeds.error_embed("Retrieve (UAT)", str(exc)))
                 return
 
             # ── Step 2: Start deploy (async, get job ID) ───────────────────────
             await msg.edit(embed=embeds.deploying_embed(package_xml.filename, test_list, check_only))
             try:
-                job_id = await sf.deploy_start(manifest, PROD_ALIAS, test_list, cwd=str(SF_PROJECT_DIR), check_only=check_only)
+                job_id, deploy_url = await sf.deploy_start(manifest, PROD_ALIAS, test_list, cwd=str(SF_PROJECT_DIR), check_only=check_only)
             except Exception as exc:
                 logger.error("Deploy start failed:\n%s", traceback.format_exc())
+                db.mark_failed(run_id, f"Deploy start: {exc}")
                 await msg.edit(embed=embeds.error_embed("Deploy (Production)", str(exc)))
                 return
 
+            db.update_job(run_id, job_id, deploy_url)
             await msg.edit(embed=embeds.deploying_embed(package_xml.filename, test_list, check_only, job_id=job_id))
 
         finally:
@@ -94,9 +110,11 @@ class DeployCog(commands.Cog):
             result = await sf.deploy_report(job_id, PROD_ALIAS, cwd=str(SF_PROJECT_DIR))
         except Exception as exc:
             logger.error("Deploy report failed:\n%s", traceback.format_exc())
+            db.mark_failed(run_id, f"Deploy report: {exc}")
             await msg.edit(embed=embeds.error_embed("Deploy Report", str(exc)))
             return
 
+        db.update_result(run_id, result)
         await msg.edit(embed=embeds.result_embed(result, test_list))
         logger.info("Deploy %s finished: %s", result.job_id, result.status)
 

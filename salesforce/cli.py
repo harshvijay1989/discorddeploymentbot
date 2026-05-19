@@ -97,8 +97,8 @@ async def deploy_start(
     test_classes: list[str],
     cwd: str,
     check_only: bool = False,
-) -> str:
-    """Start deployment asynchronously; returns job ID immediately."""
+) -> tuple[str, str]:
+    """Start deployment asynchronously; returns (job_id, deploy_url)."""
     args = [
         "project", "deploy", "start",
         "--manifest", manifest,
@@ -113,11 +113,13 @@ async def deploy_start(
         args += ["--test-level", "RunLocalTests"]
 
     data = await _run(*args, cwd=cwd)
-    job_id = data.get("result", {}).get("id", "")
+    result = data.get("result", {})
+    job_id = result.get("id", "")
+    deploy_url = result.get("deployUrl", "")
     if not job_id:
         raise RuntimeError("Deploy started but no job ID returned")
     logger.info("Deploy started, job ID: %s", job_id)
-    return job_id
+    return job_id, deploy_url
 
 
 async def deploy_report(

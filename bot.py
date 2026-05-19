@@ -6,9 +6,11 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
+import db
 from salesforce import cli as sf
 
 load_dotenv()
+db.init_db()
 
 logging.basicConfig(
     level=logging.INFO,
@@ -45,6 +47,7 @@ async def main() -> None:
     async with bot:
         await _auth_orgs()
         await bot.load_extension("commands.deploy")
+        await bot.load_extension("commands.history")
         await bot.start(os.environ["DISCORD_BOT_TOKEN"])
 
 
